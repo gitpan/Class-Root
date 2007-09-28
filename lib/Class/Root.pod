@@ -1,0 +1,426 @@
+=pod
+
+=head1 NAME
+
+Class::Root - framework for writing perl OO modules
+
+=head1 VERSION
+
+Version 0.01
+
+=head1 SYNOPSIS
+
+Class::Root provides a compact syntax for creating OO classes in perl with all common OO features:
+  I<class> and I<instance> attributes with generated accessor methods
+  I<public>, I<private>, I<protected>, I<overridden> and I<virtual> methods 
+  I<multiple inheritance> 
+  ... more ...
+
+Class::Root I<declare> statement is used to create OO methods and attributes.
+With the knowledge of all declared methods and attributes Class::Root ensures the correctness of the resulting class schema at compile time.
+
+Some optional checks may be defined to prove attribute values at run time.
+
+Both I<run time> and I<compile time> checks could be disabled for better performance of production code.
+
+INTERNALS section below explains how Class::Root works, and what makes it different from other modules with similar purposes available from CPAN.  
+
+=head1 EXAMPLE
+	
+		  -----------
+		 |Class::Root|
+		  -----------
+	               |
+		       V
+		 ------------
+		|MyClass::Foo|
+	         ------------	
+		   /       \
+		  V_       _V
+         ------------    ------------
+	|MyClass::Bar|	|MyClass::Baz|
+	 ------------    ------------  
+	          \         /
+	          _V       V_
+                 ------------
+	        |MyClass::Hoo|
+		 ------------
+
+File MyClass/Foo.pm:
+
+    package MyClass::Foo;
+
+# MyClass::Foo derives from  Class::Root
+    use Class::Root "isa";
+
+# switch to our "LOCAL" namespace 
+    package MyClass::Foo::LOCAL;
+
+    use strict;
+    use warnings;
+
+    # declare class attribute with default value
+    declare class_attribute cname => "Foo";
+
+    # private attribute names always begin with "_"
+    declare private class_attribute _ID => 0;   
+
+    # declaring a readonly attribute also generates a corresponding writable private attribute (_population in this case)
+    declare readonly class_attribute population => 0;
+
+    # class constructor should be called after all declarations of class attributes
+    # here all class attributes get there default values
+
+    class_initialize;
+
+    # declare instance attribute with default value
+    declare attribute foos => "FOOS";
+
+    # declare instance attribute with out default value
+    declare favorite_color => attribute;
+
+    # declare readonly instance attribute
+    declare id => readonly attribute;
+
+    # and again corresponding private writable attribute "_id" will be generated 
+
+    my $foo_population = 0;
+
+    # declare class method
+    declare foo_population => class_method {
+	return $foo_population;
+    };
+
+    # Class::Root provides a constructor "new"
+    # Customizable "init" method may be used to add additional construction code 
+
+    declare overwrite init => method {
+	my $self = shift;
+	
+	# "base_init" method should be used in place of SUPER::init
+	# it cares of multiple inheritance and initial values
+
+	$self->base_init( 
+	    _id => $self->_ID++,
+	    @_,
+	);
+
+	# all attribute accessors are lvalue subroutines
+	$self->_population++;
+
+	$foo_population++;
+    };
+
+    # declare instance destructor 
+    declare DESTROY => method {
+	my $self = shift;
+
+	$self->_population--;
+	$foo_population--;
+
+	# base_destroy method calls DESTROY methods from all parent classes 
+	# in case of single parent it is equivalent to SUPER::DESTROY
+
+	$self->base_destroy;
+    };
+
+    # class_verify checks the class schema last time ( Are all virtual methods implemented? )
+    # we use it in the last code line and it returns true value if no errors were found, so
+    # we don't need "1;" at the end of our module.    
+
+    class_verify;
+	
+File MyClass/Bar.pm:
+
+    package MyClass::Bar;
+
+    # MyClass::Bar derives from MyClass::Foo
+    use MyClass::Foo "isa";
+
+    # switch to Bar's "LOCAL" namespace 
+    package MyClass::Bar::LOCAL;
+
+    use strict;
+    use warnings;
+
+    # change initial value for class attribute "cname" declared in Foo  
+    declare setvalue cname => "Bar";
+
+    # call class constructor
+    class_initialize;
+
+    # declare instance attribute
+    declare attribute bars => "BARS";
+
+    # declare private attribute
+    declare _bars_secret => private attribute;
+
+    # declare instance method
+    declare get_bars_secret => method {
+	my $self = shift;
+	return $self->_bars_secret;
+    };
+
+    my $bar_population = 0;
+
+    # declare class method
+    declare bar_population => class_method {
+	return $bar_population;
+    };
+
+    declare overwrite init => method {
+	my $self = shift;
+	$self->base_init( @_ );
+	
+	$bar_population++;
+	
+	$self =~ /0x([0-9a-f]+)/;
+	$self->_bars_secret = "BAR:$1";
+    };
+
+    declare overwrite DESTROY => method {
+	my $self = shift;    
+	$bar_population--;
+	$self->base_destroy;
+    };
+
+    class_verify;
+
+Here another class, which derives from MyClass::Foo
+
+File MyClass/Baz.pm:
+
+    package MyClass::Baz;
+
+    # MyClass::Baz also derives from MyClass::Foo
+    use MyClass::Foo "isa";
+
+    # switch to Bar's "LOCAL" namespace 
+    package MyClass::Baz::LOCAL;
+
+    use strict;
+    use warnings;
+
+    # change initial value for class attribute "cname" declared in Foo  
+    declare setvalue cname => "Baz";
+
+    # call class constructor
+    class_initialize;
+
+    # declare instance attribute
+    declare attribute bazs => "BAZS";
+
+    # declare private attribute
+    declare _bazs_secret => private attribute;
+
+    # declare instance method
+    declare get_bazs_secret => method {
+	my $self = shift;
+	return $self->_bazs_secret;
+    };
+
+    my $baz_population = 0;
+
+    # declare instance method
+    declare baz_population => method {
+	return $baz_population;
+    };
+
+    declare overwrite init => method {
+	my $self = shift;
+	$self->base_init( @_ );
+	
+	$baz_population++;
+	
+	$self->_bazs_secret = "BAZ:" . (int( rand(1000) )+1000);
+    };
+
+    declare overwrite DESTROY => method {
+	my $self = shift;    
+	$baz_population--;
+	$self->base_destroy;
+    };
+
+    class_verify;
+
+Class MyClass::Hoo derives from both MyClass::Bar and MyClass::Baz
+
+File MyClass/Hoo.pm:
+
+    package MyClass::Hoo;
+
+    use MyClass::Bar 'isa';
+    use MyClass::Baz 'isa';
+
+    package MyClass::Hoo::LOCAL;
+
+    use strict;
+    use warnings;
+
+    declare setvalue cname => "Hoo";
+
+    class_initialize;
+
+    declare attribute hoos => "HOOS";
+
+    class_verify;
+
+File main.pl:
+
+    #!perl
+
+    use MyClass::Foo;
+    use MyClass::Bar;
+    use MyClass::Baz;
+    use MyClass::Hoo;
+
+    my $foo1 = MyClass::Foo->new(favorite_color => "green");
+    my $bar1 = MyClass::Bar->new(favorite_color => "blue");
+    my $bar2 = MyClass::Bar->new(favorite_color => "blue2");
+    my $baz1 = MyClass::Baz->new(favorite_color => "red");
+    my $baz2 = MyClass::Baz->new(favorite_color => "red2");
+    my $baz3 = MyClass::Baz->new(favorite_color => "red3");
+    my $hoo1 = MyClass::Hoo->new(favorite_color => "white");
+    my $hoo2 = MyClass::Hoo->new(favorite_color => "white2");
+    my $hoo3 = MyClass::Hoo->new(favorite_color => "white3");
+    my $hoo4 = MyClass::Hoo->new(favorite_color => "white4");
+
+    print "foo1->population: ", $foo1->population, "\n";
+    print "bar1->population: ", $bar1->population, "\n";
+    print "baz1->population: ", $baz1->population, "\n";
+    print "hoo1->population: ", $hoo1->population, "\n";
+
+    print "hoo1->foo_population: ", $hoo1->foo_population, "\n";
+    print "hoo1->bar_population: ", $hoo1->bar_population, "\n";
+    print "hoo1->baz_population: ", $hoo1->baz_population, "\n";
+    print "hoo1->get_bars_secret: ", $hoo1->get_bars_secret, "\n";
+    print "hoo1->get_bazs_secret: ", $hoo1->get_bazs_secret, "\n";
+
+    print "hoo1->id: ", $hoo1->id, "\n";
+    print "hoo2->id: ", $hoo2->id, "\n";
+    print "hoo3->id: ", $hoo3->id, "\n";
+    print "hoo4->id: ", $hoo4->id, "\n";
+
+    print "hoo3->class_schema:\n", $hoo3->class_schema;
+    print "hoo3->class_dump:\n", $hoo3->class_dump;
+    print "hoo3->instance_dump:\n", $hoo3->instance_dump;
+
+Here is the output from main.pl:
+
+    foo1->population: 1
+    bar1->population: 2
+    baz1->population: 3
+    hoo1->population: 4
+    hoo1->foo_population: 10
+    hoo1->bar_population: 6
+    hoo1->baz_population: 7
+    hoo1->get_bars_secret: BAR:818a1f0
+    hoo1->get_bazs_secret: BAZ:1831
+    hoo1->id: 0
+    hoo2->id: 1
+    hoo3->id: 2
+    hoo4->id: 3
+    hoo3->class_schema:
+    class "MyClass::Hoo" schema:
+      class attributes:
+	cname                         MyClass::Foo
+	population          ro        MyClass::Foo
+      attributes:
+	bars                          MyClass::Bar
+	bazs                          MyClass::Baz
+	favorite_color                MyClass::Foo
+	foos                          MyClass::Foo
+	hoos                          MyClass::Hoo
+	id                  ro        MyClass::Foo
+      class methods:
+	bar_population                MyClass::Bar
+	base_class_init               Class::Root
+	class_dump                    Class::Root
+	class_init                    Class::Root
+	class_schema                  Class::Root
+	class_schema_check            Class::Root
+	foo_population                MyClass::Foo
+	import                        Class::Root
+	new                           Class::Root
+      methods:
+	DESTROY                       MyClass::Bar
+	base_destroy                  Class::Root
+	base_init                     Class::Root
+	baz_population                MyClass::Baz
+	get_bars_secret               MyClass::Bar
+	get_bazs_secret               MyClass::Baz
+	init                          MyClass::Bar
+	instance_dump                 Class::Root
+    hoo3->class_dump:
+    class "MyClass::Hoo" dump:
+      'cname' => 'Hoo',
+      'population' => 4
+    hoo3->instance_dump:
+    instance "MyClass::Hoo=HASH(0x818a3ac)" dump:
+      'bars' => 'BARS',
+      'bazs' => 'BAZS',
+      'favorite_color' => 'white3',
+      'foos' => 'FOOS',
+      'hoos' => 'HOOS',
+      'id' => 2
+
+
+=head1 EXPORT
+
+A list of functions that can be exported.  You can delete this section
+if you don't export anything, such as for a purely object-oriented module.
+
+=head1 FUNCTIONS
+
+=head2 declare
+
+=head1 AUTHOR
+
+Evgeny Nifontov, C<< <classroot at nifsa.de> >>
+
+=head1 BUGS
+
+Please report any bugs or feature requests to
+C<bug-class-root at rt.cpan.org>, or through the web interface at
+L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Class-Root>.
+I will be notified, and then you'll automatically be notified of progress on
+your bug as I make changes.
+
+=head1 SUPPORT
+
+You can find documentation for this module with the perldoc command.
+
+    perldoc Class::Root
+
+You can also look for information at:
+
+=over 4
+
+=item * AnnoCPAN: Annotated CPAN documentation
+
+L<http://annocpan.org/dist/Class-Root>
+
+=item * CPAN Ratings
+
+L<http://cpanratings.perl.org/d/Class-Root>
+
+=item * RT: CPAN's request tracker
+
+L<http://rt.cpan.org/NoAuth/Bugs.html?Dist=Class-Root>
+
+=item * Search CPAN
+
+L<http://search.cpan.org/dist/Class-Root>
+
+=back
+
+=head1 ACKNOWLEDGEMENTS
+
+=head1 COPYRIGHT & LICENSE
+
+Copyright 2007 Evgeny Nifontov, all rights reserved.
+
+This program is free software; you can redistribute it and/or modify it
+under the same terms as Perl itself.
+
+=cut
