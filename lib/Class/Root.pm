@@ -4,7 +4,17 @@ use 5.006000;
 use warnings;
 use strict;
 
-our $VERSION = '0.01';
+=head1 NAME
+
+Class::Root - framework for writing perl OO modules
+
+=head1 VERSION
+
+Version 0.02
+
+=cut
+
+our $VERSION = '0.02';
 
 my $ROOT_CLASS = __PACKAGE__;
 
@@ -30,7 +40,7 @@ use warnings;
 
 use English;
 use Carp;
-$Carp::Verbose = 1;
+$Carp::Verbose = 0;
 
 use Data::Dumper;
 
@@ -692,7 +702,7 @@ declare import => class_method {
 	    *$class_initialize = sub {
 		
 		unless ( defined(&$caller_class_init) ) {
-		    if ( $cschema->{NUMBER_OF_PARENTS} > 1 or $cschema->{HAVE_CLASS_ATTR_VALUES} ) {
+		    if ( @_ or $cschema->{NUMBER_OF_PARENTS} > 1 or $cschema->{HAVE_CLASS_ATTR_VALUES} ) {
 			if ( ::CT_CHECKS ) {
 			    vmesg($caller,"Defining sub \"$caller_class_init\" with generic code\n");
 			}
@@ -1171,8 +1181,6 @@ declare new => class_method {
 
     bless($self, $class);
 
-    my %attr_values = %{ $schema->{$class}->{INSTANCE_ATTR_VALUES} };
-
     if ( ::RT_CHECKS ) {
 	
 	my $key = 0;
@@ -1184,7 +1192,7 @@ declare new => class_method {
 	}
     }
 
-    $self->init( %attr_values, @_ );
+    $self->init( @_ );
 
     return $self;
 };
@@ -1553,34 +1561,273 @@ if ( ::CT_CHECKS ) {
 
 1; # End of Class::Root
 
-__DATA__
-
-=pod
-
-=head1 NAME
-
-Class::Root - framework for writing perl OO modules
-
-=head1 VERSION
-
-Version 0.01
+__END__
 
 =head1 SYNOPSIS
 
-Class::Root provides a compact syntax for creating OO classes in perl with all common OO features:
-  I<class> and I<instance> attributes with generated accessor methods
-  I<public>, I<private>, I<protected>, I<overridden> and I<virtual> methods 
-  I<multiple inheritance> 
-  ... more ...
+I<Class::Root> provides a compact syntax for creating OO classes in perl. 
 
-Class::Root I<declare> statement is used to create OO methods and attributes.
-With the knowledge of all declared methods and attributes Class::Root ensures the correctness of the resulting class schema at compile time.
+I<Class::Root> supports:
+
+=over 4
+
+=item
+
+- I<public>, I<private>, I<protected> and I<virtual> methods  
+
+- I<class> and I<instance> attributes with generated accessor methods
+
+- I<multiple inheritance>
+
+- ...more...
+
+=back
+
+I<Class::Root> restricts developer requiring all methods and attributes to be defined using it's I<declare> statement, but in return I<Class::Root> ensures the correctness of the resulting class schema.
+Thus a problem of two base classes having a method with the same name will be detected at compile time.
 
 Some optional checks may be defined to prove attribute values at run time.
 
 Both I<run time> and I<compile time> checks could be disabled for better performance of production code.
 
-INTERNALS section below explains how Class::Root works, and what makes it different from other modules with similar purposes available from CPAN.  
+B<DESCRIPTION> section below explains how Class::Root works, and what makes it different from other modules with similar purposes available on CPAN.  
+
+    package Foo;
+
+    # Class::Root's import method takes care of @ISA array.
+    use Class::Root "isa";
+    
+    # switch to Foo's "LOCAL" namespace.
+    package Foo::LOCAL;
+
+    # now we can import some usefull functions without affecting Foo's inheritable namespace.  
+    use Some::Module qw( humpty dumpty );
+
+    # public class atribute with default value
+    declare class_attribute favorite_color => 'red';
+	
+    # private attribute name always begins with "_"
+    declare private class_attribute _top_secret => 'QwErTy';
+
+    # declaring a readonly attribute also generates a corresponding 
+    # writable private attribute (_population in this case)
+    declare readonly class_attribute population => 0;
+
+    my $derived_class_counter = -1;
+
+    # declare class method
+    declare get_foo_dcc => class_method {
+	my $class = shift;
+	return $derived_class_counter;
+    }
+
+    # optional class_init method could be used for additional construction code
+    declare overwrite class_init => class_method {
+	my $class = shift;
+	
+	# base_class_init method should be called in place of SUPER::class_init
+	# it cares of default values and multiple inheritance
+	$class->base_class_init( @_ );
+
+	# custom class construction code
+	$derived_class_counter++;
+    }
+
+    # class constructor should be called once after all class_attributes were declared
+    class_initialize( _top_secret => 'AsDfGh', favorite_color => 'magenta' );
+
+    # instance attribute with default value and check_value function
+    declare attribute a10 => setopts {
+	value => 15,
+	check_value => sub {
+	    return "should be integer value" unless /^\d+$/;
+	    return "10 < a10 < 25" if ( $_ le 10 or 25 le $_ );
+	    "";
+	},
+    };
+    
+    # attributes accessors can be used with argument or as lvalue
+    Foo->favorite_color = 'blue';
+    Foo->favorite_color('green');
+
+    # it is possible to declare multiple attributes and methods in single declare statement
+    declare
+	attribute a1 => 1,
+	private attribute _priv_a2 => 2,
+	protected attribute _prot_a3 => 3,
+	protected readonly attribute prot_ro_a4 => 4,
+	m1 => method { $self = shift; return $self->X2 - $self->X1 },
+	_pm2 => private method { <method implementation here> },
+	vm3 => virtual method;
+
+    # declare 'NAME' generates an instance attribute NAME
+    declare 'a1';
+
+    # declare with out arguments just do nothing
+    declare;
+
+    # Class::Root provides a constructor "new"
+    # customizable "init" method may be used to add additional construction code 
+
+    declare overwrite init => method {
+	my $self = shift;
+	
+	# "base_init" method should be used in place of SUPER::init
+	# it cares of multiple inheritance and initial values
+	$self->base_init( 
+	    _id => $self->_ID_COUNTER++,
+	    @_,
+	);
+
+	# custom construction code
+	$self->_population++;
+    };
+
+    # optional instance destructor 
+    declare DESTROY => method {
+	my $self = shift;
+
+	$self->_population--;
+
+	# base_destroy method calls DESTROY methods from all parent classes 
+	# in case of single parent it is equivalent to SUPER::DESTROY
+
+	$self->base_destroy;
+    };
+
+    # class_verify checks the class schema last time ( Are all virtual methods implemented? )
+    # we use it in the last code line and it returns true value if no errors were found, so
+    # we don't need "1;" at the end of our module.    
+
+    class_verify;
+
+Class I<Bar> derives from class I<Foo>:
+
+    package Bar;
+
+    use Foo "isa";
+    
+    # switch to Bar's LOCAL namespace
+    package Bar::LOCAL;
+
+    use strict;
+    use warnings;
+
+    our (@ISA, @EXPORT, @EXPORT_OK);
+
+    # we can use the standard Exporter module or define own import function in Bar::LOCAL package 
+    use Exporter;
+    @ISA = qw(Exporter);
+    @EXPORT      = qw( humpty dumpty );       # Symbols to autoexport (:DEFAULT tag)
+    @EXPORT_OK   = qw( rikki tikki );       # Symbols to export on request
+    
+    # change default value fo defined attribute
+    declare setvalue favorite_color => "yellow";
+
+    # change default value and check_value function 
+    declare setopts a10 => {
+	value => 23,
+	check_value => sub {
+	    return "should be integer value" unless /^\d+$/;
+	    return "20 < a10 < 25" if ( $_ le 20 or 25 le $_ );
+	    "";
+	},
+    };
+    
+    # call class constructor
+    class_initialize;
+    
+    # check class schema
+    class_verify;
+
+Our main program use module Bar:
+
+    # we can disable run time and also compile time checks in production code, after we know that it works
+    use constant RT_CHECKS => 0;
+    use constant CT_CHECKS => 0;
+
+    # with out "isa" argument the import function from Bar::LOCAL package - if any exists - will be called
+    use Bar;
+
+    # constructor new defined in Class::Root
+    my $bar1 = Bar->new( a1 => 100, a10 => 24 );
+
+See also a working example with multiple inheritance in the B<EXMAPLE> section below. 
+
+=head1 DESCRIPTION
+
+We start writing code for class based on I<Class::Root> with something like this:
+
+    1: package MyClass::Foo;
+    2: use Class::Root "isa";
+    3: package MyClass::Foo::LOCAL;
+
+Line 1: is usual, here we define a name of our class.
+
+Line 2: compiles I<Class::Root> and invokes Class::Root's I<import> method with argument "isa".
+With "isa" argument found, method I<import> adds Class::Root to @MyClass::FOO::ISA array
+and imports some functions into MyClass::Foo:LOCAL package. 
+
+=head2 LOCAL NAMESPACE
+
+In line 3: we switch to MyClass::Foo's LOCAL namespace.
+
+The reason for doing that is following. We want to protect Foo's inheritable namespace from getting
+dirty. Otherwise if we import some module such as I<Data::Dumper> we get a I<Dumper> method in our class. It is potentially dangerous, sappose that one of Foo's base classes really have a method with the name I<Dumper> and it's code already contains $self->Dumper. Being invoked with instance of Foo, the Dumper function from Data::Dumper will be used, and this is unlikelly to be correct.
+
+Importing modules into LOCAL namespace avoids this problem. And we also get an opportunity to distinguish between methods and functions. We define methods in Foo package and we define functions in Foo::LOCAL package. 
+
+Class::Root itself use this technique. For example I<declare> function defined in Class::Root::LOCAL package will not be inherited by Class::Root's derived classes. 
+
+=head2 declare
+
+=head3 attribute, class_attirbute
+
+=head3 method, class_method
+
+=head3 private
+
+=head3 protected
+
+=head3 readonly
+
+=head3 overwrite, override
+
+=head3 setopts, setoptions
+
+=head3 setval, setvalue
+
+=head2 CLASS CONSTRUCTOR
+
+=head3 class_initialize
+
+=head3 class_init
+
+=head3 base_class_init
+
+=head2 CONSTRUCTOR
+
+=head3 new
+
+=head3 init
+
+=head3 base_init
+
+=head2 DESTRUCTOR
+
+=head3 DESTROY
+
+=head3 base_destroy
+
+=head2 class_verify
+
+=head2 class_schema
+
+=head2 class_dump
+
+=head2 instance_dump
+
+=head2 import
 
 =head1 EXAMPLE
 	
@@ -1607,10 +1854,10 @@ File MyClass/Foo.pm:
 
     package MyClass::Foo;
 
-# MyClass::Foo derives from  Class::Root
+    # MyClass::Foo derives from  Class::Root
     use Class::Root "isa";
 
-# switch to our "LOCAL" namespace 
+    # switch to our "LOCAL" namespace 
     package MyClass::Foo::LOCAL;
 
     use strict;
@@ -1921,21 +2168,19 @@ Here is the output from main.pl:
       'hoos' => 'HOOS',
       'id' => 2
 
+=head1 SEE ALSO
 
-=head1 EXPORT
+Several interesting modules included in perl distribution or available on CPAN address similar problems.  
 
-A list of functions that can be exported.  You can delete this section
-if you don't export anything, such as for a purely object-oriented module.
-
-=head1 FUNCTIONS
-
-=head2 declare
+L<fields>, L<Class::Struct>, L<Class::Generate>, L<Class::Contract>, L<Class::Declare>.
 
 =head1 AUTHOR
 
-Evgeny Nifontov, C<< <classroot at nifsa.de> >>
+Evgeny Nifontov, C<< <classroot@nifsa.de> >>
 
 =head1 BUGS
+
+I<Class::Root> is still very young, so it probably has some bugs.
 
 Please report any bugs or feature requests to
 C<bug-class-root at rt.cpan.org>, or through the web interface at
@@ -1971,13 +2216,9 @@ L<http://search.cpan.org/dist/Class-Root>
 
 =back
 
-=head1 ACKNOWLEDGEMENTS
-
 =head1 COPYRIGHT & LICENSE
 
 Copyright 2007 Evgeny Nifontov, all rights reserved.
 
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
-
-=cut

@@ -3,7 +3,6 @@ MANIFEST
 Makefile.PL
 README
 lib/Class/Root.pm
-lib/Class/Root.pod
 t/001-boilerplate.t
 t/001-load.t
 t/001-pod-coverage.t
